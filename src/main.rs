@@ -4,10 +4,12 @@ use rand::Rng;
 use rayon::prelude::*;
 // use core::time::Duration;
 use std::{time::{Instant}, usize};
-use ndarray::prelude::*;
+use ndarray::prelude::Array2;
+use ndarray::ShapeBuilder;
 use itertools::iproduct;
 // use itertools::Itertools;
 use core::ops::Range;
+use arrayfire::*;
 
 const NOP: usize = 5000;
 
@@ -89,7 +91,7 @@ fn add_vectors(vector1: &Vec<f32>, vector2: &Vec<f32>) -> Vec<f32> {
 
 
 fn initialisation_comb_matrix(nop: usize) -> Array2<(usize, usize)> {
-    return Array::from_shape_vec((nop, nop).f(), iproduct!(0..nop, 0..nop).collect()).unwrap();
+    return ndarray::prelude::Array::from_shape_vec((nop, nop).f(), iproduct!(0..nop, 0..nop).collect()).unwrap();
 }
 
 
@@ -179,7 +181,7 @@ fn get_column_symmetric_square_matrix(matrix: &Array2<f32>, column_index: usize,
 fn dot_product(vector1: &Vec<f32>, vector2: &Vec<f32>) -> f32 {
     (0..vector1.len()).map(|i| {
         return vector1[i] * vector2[i];
-    }).collect::<Vec<f32>>().into_iter().sum()
+    }).collect::<Vec<f32>>().into_par_iter().sum()
 }
 
 
@@ -229,9 +231,6 @@ fn update_particles(particle_list: &mut Vec<particle>, comb_matrix: &Array2<(usi
         
         particle_i.velocity[0] = particle_i.velocity[0] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array0, i, -1.0));
         particle_i.velocity[1] = particle_i.velocity[1] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array1, i, -1.0));
-
-        // particle_i.velocity[0] = particle_i.velocity[0] + &grav_factor_array.index_axis(Axis(0), i).dot(&difference_vector_array0.index_axis(Axis(0), i));
-        // particle_i.velocity[1] = particle_i.velocity[1] + &grav_factor_array.index_axis(Axis(0), i).dot(&difference_vector_array1.index_axis(Axis(0), i));
 
         particle_i.position = add_vectors(&particle_i.position, &particle_i.velocity);
     });
