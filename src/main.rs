@@ -9,7 +9,7 @@ use itertools::iproduct;
 // use itertools::Itertools;
 use core::ops::Range;
 
-const NOP: usize = 10;
+const NOP: usize = 5000;
 
 fn main() { 
     nannou::app(model).update(update).run();
@@ -18,19 +18,20 @@ fn main() {
 struct Model {
     _window:        window::Id,
     particle_list:  Vec<particle>,
+    comb_matrix:    Array2<(usize, usize)>
 }
 
 fn model(app: &App) -> Model {
     let _window = app.new_window().view(view).build().unwrap();
     // app.set_loop_mode(LoopMode::Rate { update_interval: (Duration::new(5000,0)) });
     let particle_list = initialisation_particle_list();
-    // let comb_matrix: Array2<(usize, usize)> = initialisation_comb_matrix(NOP);
+    let comb_matrix: Array2<(usize, usize)> = initialisation_comb_matrix(NOP);
 
-    return Model { _window, particle_list };
+    return Model { _window, particle_list, comb_matrix };
 }
 
 fn update(_app: &App, _model: &mut Model, _update: Update) {
-    update_particles(&mut _model.particle_list);
+    update_particles(&mut _model.particle_list, &_model.comb_matrix);
 }
 
 fn view(app: &App, _model: &Model, frame: Frame) {
@@ -84,6 +85,11 @@ fn add_vectors(vector1: &Vec<f32>, vector2: &Vec<f32>) -> Vec<f32> {
     vector1.par_iter().enumerate().map(|(index, component_vector1)| {
         component_vector1 + vector2[index]
     }).collect()
+}
+
+
+fn initialisation_comb_matrix(nop: usize) -> Array2<(usize, usize)> {
+    return Array::from_shape_vec((nop, nop).f(), iproduct!(0..nop, 0..nop).collect()).unwrap();
 }
 
 
@@ -155,85 +161,74 @@ fn initialisation_particle_list() -> Vec<particle> {
 }
 
 
-fn get_column_symmetric_square_matrix(matrix: &Vec<f32>, size: usize, column_index: usize, parity: f32) -> Vec<f32> {
-    let array_iterator = 0..(NOP);
+fn get_column_symmetric_square_matrix(matrix: &Array2<f32>, column_index: usize, parity: f32) -> Vec<f32> {
+    let array_iterator = matrix.shape()[0];
     // println!("{:?}", &matrix);
-    let target_array: Vec<f32> = array_iterator.map(|i| {
-        let matrix_coordinate = (i.div_euclid(NOP), i.rem_euclid(NOP));
+    (0..array_iterator).map(|i| {
 
-        if matrix_coordinate.0 < matrix_coordinate.1 {
-            return matrix[matrix_coordinate.0 * size + matrix_coordinate.1];
+        if i < column_index {
+            return matrix[[column_index, i]];
         }
         else {
-            return parity * matrix[matrix_coordinate.1 * size + column_index];
+            return parity * matrix[[i, column_index]];
         }
-    }).collect();
+    }).collect()
     // println!("{:?}, {:?}", &target_array, &column_index);
-    return target_array;
 }
 
 fn dot_product(vector1: &Vec<f32>, vector2: &Vec<f32>) -> f32 {
-    let inproduct: f32 = (0..vector1.len()).map(|i| {
+    (0..vector1.len()).map(|i| {
         return vector1[i] * vector2[i];
-    }).collect::<Vec<f32>>().into_iter().sum();
-
-    return inproduct;
+    }).collect::<Vec<f32>>().into_iter().sum()
 }
 
 
-fn update_particles(particle_list: &mut Vec<particle>) {
+fn update_particles(particle_list: &mut Vec<particle>, comb_matrix: &Array2<(usize, usize)>) {
     let start: Instant = Instant::now();
     let grav_constant = 1.0;
-    let matrix_like_iterator = 0..(NOP).pow(2);
-    let matrix_like_iterator2 = 0..(NOP).pow(2);
-    let matrix_like_iterator3 = 0..(NOP).pow(2);
 
-    let grav_factor_array: Vec<f32> = matrix_like_iterator.map(|i| {
-        
-        let matrix_coordinate = (i.div_euclid(NOP), i % NOP);
-        let distance_3_2 = distance_between_vectors_squared(&particle_list[matrix_coordinate.0].position, &particle_list[matrix_coordinate.1].position).powf(3.0/2.0);
-
+    let grav_factor_array: Array2<f32> = ndarray::Zip::from(comb_matrix).par_map_collect(|particle_tuple| {
+        let distance_3_2 = distance_between_vectors_squared(&particle_list[particle_tuple.0].position, &particle_list[particle_tuple.1].position).powf(3.0/2.0);
+  
         if distance_3_2 < 10000.0 {
             return 0.0;
         };
 
-        if matrix_coordinate.0 < matrix_coordinate.1 {
-            return (grav_constant * particle_list[matrix_coordinate.0].mass * particle_list[matrix_coordinate.1].mass) / (distance_3_2);
+        if particle_tuple.0 < particle_tuple.1 {
+            return (grav_constant * particle_list[particle_tuple.0].mass * particle_list[particle_tuple.1].mass) / distance_3_2;
         }
         else {
             return 0.0;
         }
 
-    }).collect();
+    });
 
-    let difference_vector_array0: Vec<f32> = matrix_like_iterator2.map(|i| {
-        let matrix_coordinate = (i.div_euclid(NOP), i % NOP);
+    let difference_vector_array0: Array2<f32> = ndarray::Zip::from(comb_matrix).par_map_collect(|particle_tuple| {
 
-        if matrix_coordinate.0 < matrix_coordinate.1 {
-            return particle_list[matrix_coordinate.0].position[0] - particle_list[matrix_coordinate.1].position[0];
+        if particle_tuple.0 < particle_tuple.1 {
+            return particle_list[particle_tuple.0].position[0] - particle_list[particle_tuple.1].position[0];
         }
         else {
             return 0.0;
         }
 
-    }).collect();
+    });
     
-    let difference_vector_array1: Vec<f32> = matrix_like_iterator3.map(|i| {
-        let matrix_coordinate = (i.div_euclid(NOP), i % NOP);
+    let difference_vector_array1: Array2<f32> = ndarray::Zip::from(comb_matrix).par_map_collect(|particle_tuple| {
 
-        if matrix_coordinate.0 < matrix_coordinate.1 {
-            return particle_list[matrix_coordinate.0].position[1] - particle_list[matrix_coordinate.1].position[1];
+        if particle_tuple.0 < particle_tuple.1 {
+            return particle_list[particle_tuple.0].position[1] - particle_list[particle_tuple.1].position[1];
         }
         else {
-            return 0.0
+            return 0.0;
         }
-        
-    }).collect();
+
+    });
     
     particle_list.par_iter_mut().enumerate().for_each(|(i, particle_i)| {
         
-        particle_i.velocity[0] = particle_i.velocity[0] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, NOP, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array0, NOP, i, -1.0));
-        particle_i.velocity[1] = particle_i.velocity[1] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, NOP, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array1, NOP, i, -1.0));
+        particle_i.velocity[0] = particle_i.velocity[0] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array0, i, -1.0));
+        particle_i.velocity[1] = particle_i.velocity[1] + dot_product(&get_column_symmetric_square_matrix(&grav_factor_array, i, 1.0), &get_column_symmetric_square_matrix(&difference_vector_array1, i, -1.0));
 
         // particle_i.velocity[0] = particle_i.velocity[0] + &grav_factor_array.index_axis(Axis(0), i).dot(&difference_vector_array0.index_axis(Axis(0), i));
         // particle_i.velocity[1] = particle_i.velocity[1] + &grav_factor_array.index_axis(Axis(0), i).dot(&difference_vector_array1.index_axis(Axis(0), i));
